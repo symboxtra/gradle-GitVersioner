@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+import java.security.MessageDigest
+
 ext {
     GitVersion version = this.generateVersionName()
     gitVersion = version
@@ -93,11 +95,10 @@ def GitVersion generateVersionName() {
     def log = "git log --pretty=format:'%at' --reverse".execute([], rootDir)
             .text.trim().readLines()
     long initialCommitDate = log.size() > 0 ? log.first().trim().replaceAll('\'', '').toLong() : 0
-    def localChangesCount = 'git diff-index HEAD'.execute([], rootDir).text.trim().readLines().
-            size()
+
+    def localChangesCount = 'git diff-index HEAD'.execute([], rootDir).text.trim().readLines().size()
+
     boolean hasLocalChanges = localChangesCount > 0
-
-
 
     def diffToDefault = "git rev-list $defaultBranch..".execute([], rootDir)
     diffToDefault.waitFor()
@@ -120,6 +121,7 @@ def GitVersion generateVersionName() {
             return currentCommit
         }
     }()
+
 
     // get additional information
     def defaultBranchDatesLog = "git log $lastestDefaultBranchCommitSha1 --pretty=format:'%at' -n 1"
@@ -192,28 +194,31 @@ def Object getPropertyOrDefault(Object root, String name, Object fallback) {
 }
 
 def String getTinyBranchName(String originalName, int length) {
-    String nameBase64 = originalName.bytes.encodeBase64().toString()
-    if (nameBase64.length() < length) {
-        int charPos = originalName.size() % 26 + 65
-        String lowerCase = Character.toChars(charPos).toString().toLowerCase()
-        return "".padRight(2, lowerCase)
-    }
 
-    def outChars = new Integer[length]
-    def chars = nameBase64.toCharArray()
-    for (int i = 0; chars.size() > i; i++) {
-        int c = chars[i]
-        int pos = i % length
-        if (outChars[pos] == null) {
-            outChars[pos] = 0
+    String result;
+
+    MessageDigest msgDg = MessageDigest.getInstance("SHA-1");
+    msgDg.update(originalName.getBytes());
+    result = String.format("%032x", new BigInteger(1, msgDg.digest()));
+
+    // Remove the numbers for now since this can be confusing to reproduce
+    for (int i = 0; i < result.length(); i++) {
+        int ascii = (int) result.charAt(i);
+
+        // Remove, don't replace
+        if (ascii < (int) 'a' || ascii > (int) 'z') {
+            result = result.substring(0, i) + result.substring(i + 1);
+            i--;
         }
-        int next = (c as int) + outChars[pos]
-        outChars[pos] = next % 26
     }
 
-    def result = ""
-    for (int i = 0; outChars.size() > i; i++) {
-        result += Character.toChars(outChars[i] + 65).toString().toLowerCase()
+    // Repeat the hash if it isn't long enough
+    if (result.length() < length) {
+        while (result.length() < length)
+        {
+            result += result;
+        }
     }
-    return result
+
+    return result.substring(0, length);
 }
